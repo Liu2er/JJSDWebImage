@@ -19,3 +19,15 @@
 <img src="./MDImages/SDWebImage 02.png" width="400px" />
 
 [^1]: [SDWebImage 源码解析](https://zhuanlan.zhihu.com/p/27456754)
+
+
+
+脚注测试
+
+对前面的答案进行一点扩展，可以使脚注链接在此处可点击。首先像这样在底部定义脚注
+
+<a name="myfootnote1">1</a>: Footnote content goes here
+
+然后在文档中的其他地方引用
+
+<sup>[1](#myfootnote1)</sup>
