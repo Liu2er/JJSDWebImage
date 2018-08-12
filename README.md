@@ -10,7 +10,7 @@
 
 <img src="./MDImages/SDWebImageClassDiagram.png"/>
 
-阅读源码之前，首先通过对源文件进行分组来查看源码的文件结构，分组方式1[^1]：
+阅读源码之前，首先通过对源文件进行分组来查看源码的文件结构，分组方式1<sup>[1](#SDWebImage 源码解析)</sup>：
 
 <img src="./MDImages/SDWebImage 01.jpg" width="250px" />
 
@@ -27,6 +27,8 @@
 对前面的答案进行一点扩展，可以使脚注链接在此处可点击。首先像这样在底部定义脚注
 
 <a name="myfootnote1">1</a>: Footnote content goes here
+
+<a name="SDWebImage 源码解析">1</a>: [SDWebImage 源码解析](https://zhuanlan.zhihu.com/p/27456754)
 
 然后在文档中的其他地方引用
 
