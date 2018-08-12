@@ -114,6 +114,31 @@
     }];
 }
 
+/*
+ url的类型检查
+ 创建一个SDWebImageCombinedOperation类型的operation
+ 如果url不合法，或失败过且失败了也不重试，则执行一个url不合法的Completion回调
+ （接下来为url合法的情况）
+ 将operation加入self.runningOperations
+ 去缓存中查找图片，且返回一个NSOperation对象，保存在SDWebImageCombinedOperation的实例operation的cacheOperation属性里
+    （接下来为查找结果的回调）
+    需要从网络下载图片：
+        执行回调callCompletionBlockForOperation
+        从网络下载图片，返回一个SDWebImageDownloadToken类型的对象，保存在SDWebImageCombinedOperation的实例operation的downloadToken属性里
+            (下载结束的回调)
+            operation被提前释放了，或者operation的任务被取消了，什么都不做
+            (否则，下载出错了)
+            执行回调callCompletionBlockForOperation，传入错误信息
+            判断是否要把失败的url存入self.failedURLs
+            (其他情况)
+            如果options是失败后重试，则把url从self.failedURLs移除掉
+            ... ...
+    不需要从网络下载图片，且在缓存中找到了图片，执行回调callCompletionBlockForOperation
+    不需要从网络下载图片，且没有在缓存中找到图片，执行回调callCompletionBlockForOperation
+ 返回一个保存了查询队列NSOperation的SDWebImageCombinedOperation实例operation
+ */
+
+//返回一个operation对象
 - (id <SDWebImageOperation>)loadImageWithURL:(nullable NSURL *)url
                                      options:(SDWebImageOptions)options
                                     progress:(nullable SDWebImageDownloaderProgressBlock)progressBlock
@@ -123,33 +148,41 @@
 
     // Very common mistake is to send the URL using NSString object instead of NSURL. For some strange reason, Xcode won't
     // throw any warning for this type mismatch. Here we failsafe this error by allowing URLs to be passed as NSString.
+    //如果传入的url是字符串类型，则将url转换成NSURL类型(容错处理)
     if ([url isKindOfClass:NSString.class]) {
         url = [NSURL URLWithString:(NSString *)url];
     }
 
     // Prevents app crashing on argument type error like sending NSNull instead of NSURL
+    //传入的url既不是NSString也不是NSURL时，将其设置为nil，防止crash
     if (![url isKindOfClass:NSURL.class]) {
         url = nil;
     }
 
+    //SDWebImageCombinedOperation继承自NSObject，遵守了SDWebImageOperation协议（只有一个cancel方法）
     SDWebImageCombinedOperation *operation = [SDWebImageCombinedOperation new];
     operation.manager = self;
 
     BOOL isFailedUrl = NO;
+    //如果url下载失败过，就将isFailedUrl置为YES
     if (url) {
         LOCK(self.failedURLsLock);
         isFailedUrl = [self.failedURLs containsObject:url];
         UNLOCK(self.failedURLsLock);
     }
 
+    //如果url长度为0，或者 （曾经下载失败过，且options失败后不重试）
     if (url.absoluteString.length == 0 || (!(options & SDWebImageRetryFailed) && isFailedUrl)) {
+        //执行一个url不合法的Completion回调
         [self callCompletionBlockForOperation:operation completion:completedBlock error:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorFileDoesNotExist userInfo:nil] url:url];
         return operation;
     }
 
+    //将operation加入到self.runningOperations数组中，其中存放正在执行的任务
     LOCK(self.runningOperationsLock);
     [self.runningOperations addObject:operation];
     UNLOCK(self.runningOperationsLock);
+    //获取由url转换的key（实际上就是url.absoluteString，用户实现了self.cacheKeyFilter(url)则另当别论）
     NSString *key = [self cacheKeyForURL:url];
     
     SDImageCacheOptions cacheOptions = 0;
@@ -158,21 +191,36 @@
     if (options & SDWebImageScaleDownLargeImages) cacheOptions |= SDImageCacheScaleDownLargeImages;
     
     __weak SDWebImageCombinedOperation *weakOperation = operation;
+    //根据key和cacheOptions异步地在缓存中查找是否有图片，且返回一个NSOperation对象，保存在SDWebImageCombinedOperation的实例operation的cacheOperation属性里
     operation.cacheOperation = [self.imageCache queryCacheOperationForKey:key options:cacheOptions done:^(UIImage *cachedImage, NSData *cachedData, SDImageCacheType cacheType) {
         __strong __typeof(weakOperation) strongOperation = weakOperation;
+        //如果strongOperation被提前释放了，或者被取消了
         if (!strongOperation || strongOperation.isCancelled) {
+            //将strongOperation从self.runningOperations中安全地移除
             [self safelyRemoveOperationFromRunning:strongOperation];
             return;
         }
         
         // Check whether we should download image from network
+        //检查是否需要从网络下载图片：不只从缓存中读取 且 (cachedImage不存在 或者 需要刷新cache) 且 (self.delegate不能响应方法imageManager:shouldDownloadImageForURL: 或者 能响应该方法且返回YES)
+        //本options是从block外面截获的自动变量
         BOOL shouldDownload = (!(options & SDWebImageFromCacheOnly))
             && (!cachedImage || options & SDWebImageRefreshCached)
             && (![self.delegate respondsToSelector:@selector(imageManager:shouldDownloadImageForURL:)] || [self.delegate imageManager:self shouldDownloadImageForURL:url]);
+        
+        //如果需要从网络下载图片
         if (shouldDownload) {
+            /*
+             能进来，至少要满足下面三种情况中的一种：
+                !cachedImage 需要刷
+                !cachedImage 不需要刷
+                cachedImage 需要刷
+             */
+            //cachedImage存在 且 需要刷新cache（即从缓存中知道了图片，但是SDWebImageRefreshCached==YES时，依然要重新从网络下载图片）
             if (cachedImage && options & SDWebImageRefreshCached) {
                 // If image was found in the cache but SDWebImageRefreshCached is provided, notify about the cached image
                 // AND try to re-download it in order to let a chance to NSURLCache to refresh it from server.
+                //以下方法其实就是回到主线程安全地执行completedBlock，并把这些参数一并带过去
                 [self callCompletionBlockForOperation:strongOperation completion:completedBlock image:cachedImage data:cachedData error:nil cacheType:cacheType finished:YES url:url];
             }
 
@@ -196,6 +244,7 @@
             
             // `SDWebImageCombinedOperation` -> `SDWebImageDownloadToken` -> `downloadOperationCancelToken`, which is a `SDCallbacksDictionary` and retain the completed block below, so we need weak-strong again to avoid retain cycle
             __weak typeof(strongOperation) weakSubOperation = strongOperation;
+            //执行下载操作
             strongOperation.downloadToken = [self.imageDownloader downloadImageWithURL:url options:downloaderOptions progress:progressBlock completed:^(UIImage *downloadedImage, NSData *downloadedData, NSError *error, BOOL finished) {
                 __strong typeof(weakSubOperation) strongSubOperation = weakSubOperation;
                 if (!strongSubOperation || strongSubOperation.isCancelled) {
@@ -279,15 +328,18 @@
                 }
             }];
         } else if (cachedImage) {
+            //不需要下载，且在缓存中找到了图片
             [self callCompletionBlockForOperation:strongOperation completion:completedBlock image:cachedImage data:cachedData error:nil cacheType:cacheType finished:YES url:url];
             [self safelyRemoveOperationFromRunning:strongOperation];
         } else {
             // Image not in cache and download disallowed by delegate
+            //不需要下载图片，也没在缓存中找到图片
             [self callCompletionBlockForOperation:strongOperation completion:completedBlock image:nil data:nil error:nil cacheType:SDImageCacheTypeNone finished:YES url:url];
             [self safelyRemoveOperationFromRunning:strongOperation];
         }
     }];
 
+    //返回一个保存了查询队列NSOperation的SDWebImageCombinedOperation实例operation
     return operation;
 }
 

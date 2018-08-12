@@ -30,6 +30,8 @@
 
 ### 源码阅读
 
+#### sd_internalSetImageWithURL
+
 `UIImageView +WebCache` 暴露了很多调用灵活的接口，其最终都会调用到 `UIView+WebCache` 分类的如下方法中：
 
 ```objective-c
@@ -264,6 +266,121 @@
 }
 ```
 
+#### UIView+WebCacheOperation 
+
+在 `sd_internalSetImageWithURL` 的一开始执行了一个取消操作 `[self sd_cancelImageLoadOperationWithKey:validOperationKey];` ，取消 UIImageView(UIView) 上当前正在进行的异步下载，确保每个 UIImageView 对象中永远只存在一个 operation，当前只允许一个图片网络请求，该 operation 负责从缓存中获取 image 或者是重新下载 image。`sd_cancelImageLoadOperationWithKey` 的方法实现位于 `UIView+WebCacheOperation`， `UIView+WebCacheOperation.m` 中的内容如下：
+
+```objective-c
+#import "UIView+WebCacheOperation.h"
+#import "objc/runtime.h"
+
+static char loadOperationKey;
+
+// key is copy, value is weak because operation instance is retained by SDWebImageManager's runningOperations property
+// we should use lock to keep thread-safe because these method may not be acessed from main queue
+typedef NSMapTable<NSString *, id<SDWebImageOperation>> SDOperationsDictionary;
+
+//这些方法用来取消 UIView 的图像加载，它们是内部使用的，而不是公开的。所有这些存储型operations是weak的，所以，图像加载完毕后他们呢就会销毁，如果你需要存储这些operations，请使用你自己的类强引用他们
+//可以这么理解，UIView有个NSMapTable类型的属性operations，它通过键值的方式来保存opration
+@implementation UIView (WebCacheOperation)
+
+//相当于通过Associate为UIView添加了一个NSMapTable类型的属性
+- (SDOperationsDictionary *)sd_operationDictionary {
+    @synchronized(self) {
+        //operations的真实类型是NSMapTable
+        SDOperationsDictionary *operations = objc_getAssociatedObject(self, &loadOperationKey);
+        if (operations) {
+            return operations;
+        }
+        //operations的key是强引用，value是弱引用
+        operations = [[NSMapTable alloc] initWithKeyOptions:NSPointerFunctionsStrongMemory valueOptions:NSPointerFunctionsWeakMemory capacity:0];
+        //通过loadOperationKey为UIView绑定一个operations（类似于NSDictionary）
+        objc_setAssociatedObject(self, &loadOperationKey, operations, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return operations;
+    }
+}
+
+//存储图像加载的operation（该operation通过一个weak的 map table 存储在UIView中）
+- (void)sd_setImageLoadOperation:(nullable id<SDWebImageOperation>)operation forKey:(nullable NSString *)key {
+    if (key) {
+        //先取消
+        [self sd_cancelImageLoadOperationWithKey:key];
+        if (operation) {
+            //获取UIView通过Associate添加的NSMapTable类型的绑定对象operationDictionary
+            SDOperationsDictionary *operationDictionary = [self sd_operationDictionary];
+            @synchronized (self) {
+                //将operation通过key添加到UIView的绑定对象operationDictionary里
+                [operationDictionary setObject:operation forKey:key];
+            }
+        }
+    }
+}
+
+//取消UIView对应key的所有operations
+- (void)sd_cancelImageLoadOperationWithKey:(nullable NSString *)key {
+    // Cancel in progress downloader from queue
+    //相当于通过Associate获得UIView的一个叫sd_operationDictionary的属性，其真实类型是NSMapTable，key是强引用，value是弱引用
+    SDOperationsDictionary *operationDictionary = [self sd_operationDictionary];
+    id<SDWebImageOperation> operation; //operation是一个遵守了SDWebImageOperation协议的对象
+    @synchronized (self) {
+        //operation是通过key存储在UIView的一个NSMapTable里
+        operation = [operationDictionary objectForKey:key];
+    }
+    if (operation) {
+        if ([operation conformsToProtocol:@protocol(SDWebImageOperation)]){
+            //先取消
+            [operation cancel];
+        }
+        @synchronized (self) {
+            //再移除
+            [operationDictionary removeObjectForKey:key];
+        }
+    }
+}
+
+//根据当前的UIVIew和key移除operations，而不取消
+- (void)sd_removeImageLoadOperationWithKey:(nullable NSString *)key {
+    if (key) {
+        SDOperationsDictionary *operationDictionary = [self sd_operationDictionary];
+        @synchronized (self) {
+            [operationDictionary removeObjectForKey:key];
+        }
+    }
+}
+
+@end
+```
+
+#### loadImageWithURL
+
+```objective-c
+/*
+ url的类型检查
+ 创建一个SDWebImageCombinedOperation类型的operation
+ 如果url不合法，或失败过且失败了也不重试，则执行一个url不合法的Completion回调
+ （接下来为url合法的情况）
+ 将operation加入self.runningOperations
+ 去缓存中查找图片，且返回一个NSOperation对象，保存在SDWebImageCombinedOperation的实例operation的cacheOperation属性里
+    （接下来为查找结果的回调）
+    需要从网络下载图片：
+        执行回调callCompletionBlockForOperation
+        从网络下载图片，返回一个SDWebImageDownloadToken类型的对象，保存在SDWebImageCombinedOperation的实例operation的downloadToken属性里
+            (下载结束的回调)
+            operation被提前释放了，或者operation的任务被取消了，什么都不做
+            (否则，下载出错了)
+            执行回调callCompletionBlockForOperation，传入错误信息
+            判断是否要把失败的url存入self.failedURLs
+            (其他情况)
+            如果options是失败后重试，则把url从self.failedURLs移除掉
+            ... ...
+    不需要从网络下载图片，且在缓存中找到了图片，执行回调callCompletionBlockForOperation
+    不需要从网络下载图片，且没有在缓存中找到图片，执行回调callCompletionBlockForOperation
+ 返回一个保存了查询队列NSOperation的SDWebImageCombinedOperation实例operation
+ */
+```
+
+
+
 
 
 ## 参考
@@ -271,3 +388,4 @@
 - [SDWebImage 源码解析](https://zhuanlan.zhihu.com/p/27456754)
 - [搬好小板凳看SDWebImage源码解析（一）](http://www.cocoachina.com/ios/20171218/21566.html)
 - [SDWebImage源码解析](https://www.jianshu.com/p/93696717b4a3)
+- [SDWebImage源码阅读(上)](https://juejin.im/post/5a573387518825734501713a)：一行一行的注释
