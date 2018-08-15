@@ -49,9 +49,11 @@
 
 @implementation SDWebImageDownloader
 
+//类方法，类加载的时候执行
 + (void)initialize {
     // Bind SDNetworkActivityIndicator if available (download it here: http://github.com/rs/SDNetworkActivityIndicator )
     // To use it, just add #import "SDNetworkActivityIndicator.h" in addition to the SDWebImage import
+    //如果导入了SDNetworkActivityIndicator文件，就会展示一个小菊花
     if (NSClassFromString(@"SDNetworkActivityIndicator")) {
 
 #pragma clang diagnostic push
@@ -60,6 +62,7 @@
 #pragma clang diagnostic pop
 
         // Remove observer in case it was previously added.
+        //删除通知后重新添加通知，防止重复添加出现异常
         [[NSNotificationCenter defaultCenter] removeObserver:activityIndicator name:SDWebImageDownloadStartNotification object:nil];
         [[NSNotificationCenter defaultCenter] removeObserver:activityIndicator name:SDWebImageDownloadStopNotification object:nil];
 
@@ -81,6 +84,7 @@
     return instance;
 }
 
+//初始化时如果用的init方法，NSURLSession运行在默认模式下
 - (nonnull instancetype)init {
     return [self initWithSessionConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]];
 }
@@ -108,7 +112,9 @@
     return self;
 }
 
+//创建指定运行模式的NSURLSession对象，可能已经创建过了
 - (void)createNewSessionWithConfiguration:(NSURLSessionConfiguration *)sessionConfiguration {
+    //可能已经创建过，所以需要取消前一个session的下载任务并打破引用循环
     [self cancelAllDownloads];
 
     if (self.session) {
@@ -122,12 +128,15 @@
      *  We send nil as delegate queue so that the session creates a serial operation queue for performing all delegate
      *  method calls and completion handler calls.
      */
+    //delegateQueue传入nil表示创建一个串行队列，来处理所有代理方法
+    //self持有了session，session又持有了self，需要在dealloc里调用invalidateAndCancel方法来打破循环引用
     self.session = [NSURLSession sessionWithConfiguration:sessionConfiguration
                                                  delegate:self
                                             delegateQueue:nil];
 }
 
 - (void)invalidateSessionAndCancel:(BOOL)cancelPendingOperations {
+    //SDWebImageDownloader可以通过sharedDownloader创建单例对象，也可以通过init创建单独的对象
     if (self == [SDWebImageDownloader sharedDownloader]) {
         return;
     }
@@ -193,12 +202,20 @@
     }
 }
 
+/*
+ 1、创建operation
+ 2、将一一对应的url和operation保存到self.URLOperations
+ 3、将operation加入并发队列里
+ 4、保存progressBlock和completedBlock到一个cancelToken字典里，并返回这个cancelToken
+ 5、创建并返回SDWebImageDownloadToken类型的token
+ */
 - (nullable SDWebImageDownloadToken *)downloadImageWithURL:(nullable NSURL *)url
                                                    options:(SDWebImageDownloaderOptions)options
                                                   progress:(nullable SDWebImageDownloaderProgressBlock)progressBlock
                                                  completed:(nullable SDWebImageDownloaderCompletedBlock)completedBlock {
     __weak SDWebImageDownloader *wself = self;
 
+    //直接调用addProgressCallback:completedBlock:forURL:createCallback:方法，后面大片的block代码目的就是为了创建一个SDWebImageDownloaderOperation类型的对象
     return [self addProgressCallback:progressBlock completedBlock:completedBlock forURL:url createCallback:^SDWebImageDownloaderOperation *{
         __strong __typeof (wself) sself = wself;
         NSTimeInterval timeoutInterval = sself.downloadTimeout;
@@ -245,6 +262,12 @@
     }];
 }
 
+/*
+ 1、从operation.callbackBlocks中移除保存了progressBlock和completedBlock的一个字典，当callbackBlocks中的回调块字典全部被删除完了才会真正取消任务
+ 2、从self.URLOperations移除operation
+ SDWebImageDownloader的cancel:方法传的是SDWebImageDownloadToken的token
+ SDWebImageDownloaderOperation的cancel:方法传的是SDCallbacksDictionary的token
+ */
 - (void)cancel:(nullable SDWebImageDownloadToken *)token {
     NSURL *url = token.url;
     if (!url) {
@@ -261,11 +284,20 @@
     UNLOCK(self.operationsLock);
 }
 
+/*
+ downloadImageWithURL:options:progress:completed:方法的核心代码其实是这个方法：创建并返回一个包含了所有信息的token
+ 1、创建SDWebImageDownloaderOperation类型的operation（用downloadImageWithURL:options:progress:completed:的block体创建）
+ 2、将一一对应的url和operation保存到self.URLOperations这个可变字典里
+ 3、将operation添加到self.downloadQueue这个并发队列里
+ 4、将传入的progressBlock和completedBlock放入一个cancelToken字典里，再将该字典保存在operation.callbackBlocks数组里，最后将这个cancelToken字典返回
+ 5、创建并返回SDWebImageDownloadToken类型的token，该token设置了刚创建并加入队列的operation、url和刚获得的cancelToken
+ */
 - (nullable SDWebImageDownloadToken *)addProgressCallback:(SDWebImageDownloaderProgressBlock)progressBlock
                                            completedBlock:(SDWebImageDownloaderCompletedBlock)completedBlock
                                                    forURL:(nullable NSURL *)url
                                            createCallback:(SDWebImageDownloaderOperation *(^)(void))createCallback {
     // The URL will be used as the key to the callbacks dictionary so it cannot be nil. If it is nil immediately call the completed block with no image or data.
+    //过滤掉url为空的情况
     if (url == nil) {
         if (completedBlock != nil) {
             completedBlock(nil, nil, nil, NO);
@@ -274,10 +306,11 @@
     }
     
     LOCK(self.operationsLock);
+    //URLOperations实际上是一个NSMutableDictionary，key是url，value是SDWebImageDownloaderOperation，一个url对应一个下载任务
     SDWebImageDownloaderOperation *operation = [self.URLOperations objectForKey:url];
     // There is a case that the operation may be marked as finished, but not been removed from `self.URLOperations`.
     if (!operation || operation.isFinished) {
-        operation = createCallback();
+        operation = createCallback(); //createCallback为上面downloadImageWithURL:方法里的block体，该block体的目的就是创建一个SDWebImageDownloaderOperation类型的对象
         __weak typeof(self) wself = self;
         operation.completionBlock = ^{
             __strong typeof(wself) sself = wself;
@@ -288,15 +321,20 @@
             [sself.URLOperations removeObjectForKey:url];
             UNLOCK(sself.operationsLock);
         };
-        [self.URLOperations setObject:operation forKey:url];
+        [self.URLOperations setObject:operation forKey:url]; //将一一对应的url和operation保存到URLOperations这个可变字典里
         // Add operation to operation queue only after all configuration done according to Apple's doc.
         // `addOperation:` does not synchronously execute the `operation.completionBlock` so this will not cause deadlock.
+        //将operation添加到并发队列里（maxConcurrentOperationCount为6）
         [self.downloadQueue addOperation:operation];
     }
     UNLOCK(self.operationsLock);
 
+    //将传入的progressBlock和completedBlock放入一个字典里
+    //再将该字典保存在operation.callbackBlocks数组里
+    //最后将这个字典返回
     id downloadOperationCancelToken = [operation addHandlersForProgress:progressBlock completed:completedBlock];
     
+    //本方法的核心是创建并返回一个包含了所有信息的token
     SDWebImageDownloadToken *token = [SDWebImageDownloadToken new];
     token.downloadOperation = operation;
     token.url = url;
@@ -353,6 +391,7 @@ didReceiveResponse:(NSURLResponse *)response
     }
 }
 
+//本方法是NSURLSession的回调方法，但实际上执行的是SDWebImageDownloaderOperation里的实现
 - (void)URLSession:(NSURLSession *)session
           dataTask:(NSURLSessionDataTask *)dataTask
  willCacheResponse:(NSCachedURLResponse *)proposedResponse

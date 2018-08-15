@@ -62,6 +62,7 @@ typedef NS_OPTIONS(NSUInteger, SDWebImageDownloaderOptions) {
     SDWebImageDownloaderScaleDownLargeImages = 1 << 8,
 };
 
+//下载图片时的顺序，FIFO或者LIFO，默认queue模式，先进先出
 typedef NS_ENUM(NSInteger, SDWebImageDownloaderExecutionOrder) {
     /**
      * Default value. All download operations will execute in queue style (first-in-first-out).
@@ -77,18 +78,23 @@ typedef NS_ENUM(NSInteger, SDWebImageDownloaderExecutionOrder) {
 FOUNDATION_EXPORT NSString * _Nonnull const SDWebImageDownloadStartNotification;
 FOUNDATION_EXPORT NSString * _Nonnull const SDWebImageDownloadStopNotification;
 
+//下载进度的回调块
 typedef void(^SDWebImageDownloaderProgressBlock)(NSInteger receivedSize, NSInteger expectedSize, NSURL * _Nullable targetURL);
 
+//下载完成的回调块
 typedef void(^SDWebImageDownloaderCompletedBlock)(UIImage * _Nullable image, NSData * _Nullable data, NSError * _Nullable error, BOOL finished);
 
 typedef NSDictionary<NSString *, NSString *> SDHTTPHeadersDictionary;
 typedef NSMutableDictionary<NSString *, NSString *> SDHTTPHeadersMutableDictionary;
 
+//http首部过滤的一个回调块
 typedef SDHTTPHeadersDictionary * _Nullable (^SDWebImageDownloaderHeadersFilterBlock)(NSURL * _Nullable url, SDHTTPHeadersDictionary * _Nullable headers);
 
 /**
  *  A token associated with each download. Can be used to cancel a download
  */
+//与每一个下载任务相绑定的自定义token类（绑定了url、CancelToken字典、operation），用于取消下载任务
+//根据token获得url，根据url从dowloader.URLOperations里获得operation，再根据operation和token里的cancelToken来执行取消任务[operation cancel:cancelToken]
 @interface SDWebImageDownloadToken : NSObject <SDWebImageOperation>
 
 /**
@@ -118,16 +124,19 @@ typedef SDHTTPHeadersDictionary * _Nullable (^SDWebImageDownloaderHeadersFilterB
 /**
  *  The maximum number of concurrent downloads
  */
+//支持的最大同时下载图片的数量，其实就是NSOperationQueue支持的最大并发数（self.downloadQueue.maxConcurrentOperationCount）
 @property (assign, nonatomic) NSInteger maxConcurrentDownloads;
 
 /**
  * Shows the current amount of downloads that still need to be downloaded
  */
+//当前正在下载图片的数量，其实就是NSOperationQueue的operationCount，即正在执行下载任务的operation的数量
 @property (readonly, nonatomic) NSUInteger currentDownloadCount;
 
 /**
  *  The timeout value (in seconds) for the download operation. Default: 15.0.
  */
+//下载时连接服务器的超时时间，默认15s
 @property (assign, nonatomic) NSTimeInterval downloadTimeout;
 
 /**
@@ -154,16 +163,19 @@ typedef SDHTTPHeadersDictionary * _Nullable (^SDWebImageDownloaderHeadersFilterB
 /**
  *  Set the default URL credential to be set for request operations.
  */
+//默认的URL credential
 @property (strong, nonatomic, nullable) NSURLCredential *urlCredential;
 
 /**
  * Set username
  */
+//用户名，有些图片下载的地址需要做用户认证
 @property (strong, nonatomic, nullable) NSString *username;
 
 /**
  * Set password
  */
+//密码
 @property (strong, nonatomic, nullable) NSString *password;
 
 /**
@@ -204,6 +216,7 @@ typedef SDHTTPHeadersDictionary * _Nullable (^SDWebImageDownloaderHeadersFilterB
  * @param operationClass The subclass of `SDWebImageDownloaderOperation` to set 
  *        as default. Passing `nil` will revert to `SDWebImageDownloaderOperation`.
  */
+//设置下载类的Class，默认使用SDWebImageDownloaderOperation，开发者可以自定义只需实现相关协议
 - (void)setOperationClass:(nullable Class)operationClass;
 
 /**
@@ -227,6 +240,11 @@ typedef SDHTTPHeadersDictionary * _Nullable (^SDWebImageDownloaderHeadersFilterB
  *                       set to YES. In case of error, the finished argument is always YES.
  *
  * @return A token (SDWebImageDownloadToken) that can be passed to -cancel: to cancel this operation
+ */
+/*
+ 下载url对应的图片
+ 设置下载配置选项、进度回调块、下载完成回调块
+ 返回一个token，用于取消对应的下载任务
  */
 - (nullable SDWebImageDownloadToken *)downloadImageWithURL:(nullable NSURL *)url
                                                    options:(SDWebImageDownloaderOptions)options
