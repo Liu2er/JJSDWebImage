@@ -255,8 +255,19 @@
                     BOOL shouldBlockFailedURL;
                     // Check whether we should block failed url
                     if ([self.delegate respondsToSelector:@selector(imageManager:shouldBlockFailedURL:withError:)]) {
+                        // 如果实现了代理就按照代理返回的数据（当发生下载错误时，本代理方法用来控制是否把URL加入错误URL列表）
                         shouldBlockFailedURL = [self.delegate imageManager:self shouldBlockFailedURL:url withError:error];
                     } else {
+                        /* 如果没有实现代理，想要阻止下载失败的链接就得满足以下条件：
+                        不是没联网、
+                        不是被取消、
+                        不是连接超时、
+                        不是关闭了国际漫游、
+                        不是不允许蜂窝数据连接、
+                        不是没有找到host、
+                        不是无法连接host、
+                        不是连接丢失
+                        */
                         shouldBlockFailedURL = (   error.code != NSURLErrorNotConnectedToInternet
                                                 && error.code != NSURLErrorCancelled
                                                 && error.code != NSURLErrorTimedOut

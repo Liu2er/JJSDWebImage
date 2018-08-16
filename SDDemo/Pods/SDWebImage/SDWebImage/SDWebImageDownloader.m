@@ -237,6 +237,7 @@
         else {
             request.allHTTPHeaderFields = [sself allHTTPHeaderFields];
         }
+        //创建operation
         SDWebImageDownloaderOperation *operation = [[sself.operationClass alloc] initWithRequest:request inSession:sself.session options:options];
         operation.shouldDecompressImages = sself.shouldDecompressImages;
         
@@ -258,6 +259,7 @@
             sself.lastAddedOperation = operation;
         }
 
+        //返回operation
         return operation;
     }];
 }
@@ -324,6 +326,7 @@
         [self.URLOperations setObject:operation forKey:url]; //将一一对应的url和operation保存到URLOperations这个可变字典里
         // Add operation to operation queue only after all configuration done according to Apple's doc.
         // `addOperation:` does not synchronously execute the `operation.completionBlock` so this will not cause deadlock.
+        
         //将operation添加到并发队列里（maxConcurrentOperationCount为6）
         [self.downloadQueue addOperation:operation];
     }

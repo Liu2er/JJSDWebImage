@@ -280,7 +280,7 @@ static char loadOperationKey;
 // we should use lock to keep thread-safe because these method may not be acessed from main queue
 typedef NSMapTable<NSString *, id<SDWebImageOperation>> SDOperationsDictionary;
 
-//这些方法用来取消 UIView 的图像加载，它们是内部使用的，而不是公开的。所有这些存储型operations是weak的，所以，图像加载完毕后他们呢就会销毁，如果你需要存储这些operations，请使用你自己的类强引用他们
+//这些方法用来取消 UIView 的图像加载，它们是内部使用的，而不是公开的。所有这些存储型operations是weak的，所以，图像加载完毕后他们就会销毁，如果你需要存储这些operations，请使用你自己的类强引用他们
 //可以这么理解，UIView有个NSMapTable类型的属性operations，它通过键值的方式来保存opration
 @implementation UIView (WebCacheOperation)
 

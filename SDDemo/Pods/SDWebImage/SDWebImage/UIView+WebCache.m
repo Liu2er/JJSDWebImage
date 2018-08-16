@@ -115,7 +115,7 @@ static char TAG_ACTIVITY_SHOW;
         self.sd_imageProgress.totalUnitCount = 0;
         self.sd_imageProgress.completedUnitCount = 0;
         
-        //获得manager
+        //获得manager，默认是单例对象，除非手动传入context
         SDWebImageManager *manager;
         if ([context valueForKey:SDWebImageExternalCustomManagerKey]) {
             manager = (SDWebImageManager *)[context valueForKey:SDWebImageExternalCustomManagerKey];
@@ -288,6 +288,7 @@ static char TAG_ACTIVITY_SHOW;
 #if SD_UIKIT
         [UIView transitionWithView:view duration:0 options:0 animations:^{
             // 0 duration to let UIKit render placeholder and prepares block
+            // 如果在展示过渡动画之前设置了要执行的代码块就先执行
             if (transition.prepares) {
                 transition.prepares(view, image, imageData, cacheType, imageURL);
             }

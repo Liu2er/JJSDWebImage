@@ -8,6 +8,7 @@
 
 #import "ViewController.h"
 #import "UIImageView+WebCache.h"
+#import "UIView+WebCache.h"
 
 @interface ViewController ()
 
@@ -40,6 +41,7 @@
 //    NSURL *url = [NSURL URLWithString:@"https://pic.qqtn.com/up/2016-4/201604281819303646024.png"];
 //    NSURL *url = [NSURL URLWithString:@"http://pic.netbian.com/uploads/allimg/180128/113416-1517110456633d.jpg"];
     NSURL *url = [NSURL URLWithString:@"https://www.dpfile.com/sc/eleconfig/contenttopicoperation/201803141901422.jpg"];
+    [self.imageView sd_setShowActivityIndicatorView:YES]; 
     [self.imageView sd_setImageWithURL:url placeholderImage:nil completed:^(UIImage * _Nullable image, NSError * _Nullable error, SDImageCacheType cacheType, NSURL * _Nullable imageURL) {
         NSLog(@"\nLiujiajie2: image = %@", image);
         NSLog(@"\nLiujiajie2:");
