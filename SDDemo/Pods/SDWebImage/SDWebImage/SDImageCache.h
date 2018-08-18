@@ -10,18 +10,22 @@
 #import "SDWebImageCompat.h"
 #import "SDImageCacheConfig.h"
 
+//获取图片的方式类别枚举
 typedef NS_ENUM(NSInteger, SDImageCacheType) {
     /**
      * The image wasn't available the SDWebImage caches, but was downloaded from the web.
      */
+    //图片不是从缓存中拿到的，从网上下载
     SDImageCacheTypeNone,
     /**
      * The image was obtained from the disk cache.
      */
+    //从磁盘中获取
     SDImageCacheTypeDisk,
     /**
      * The image was obtained from the memory cache.
      */
+    //从内存中获取
     SDImageCacheTypeMemory
 };
 
@@ -29,15 +33,19 @@ typedef NS_OPTIONS(NSUInteger, SDImageCacheOptions) {
     /**
      * By default, we do not query disk data when the image is cached in memory. This mask can force to query disk data at the same time.
      */
+    // 当内存中缓存了图片，默认不再查询磁盘，本flag强制同时去查询磁盘
     SDImageCacheQueryDataWhenInMemory = 1 << 0,
     /**
      * By default, we query the memory cache synchronously, disk cache asynchronously. This mask can force to query disk cache synchronously.
      */
+    // 默认情况下，查找内存缓存是同步的，查找磁盘缓存是异步的，这个flag强制同步地去查询磁盘缓存，来保证图片被加载到同一个runloop
+    // 本flat可以避免禁用了内存缓存或其它情况下cell复用时闪烁
     SDImageCacheQueryDiskSync = 1 << 1,
     /**
      * By default, images are decoded respecting their original size. On iOS, this flag will scale down the
      * images to a size compatible with the constrained memory of devices.
      */
+    // 默认情况下，图片根据原始大小进行解码，这个flag允许根据设备的内存大小来将图片缩小到合适的大小
     SDImageCacheScaleDownLargeImages = 1 << 2
 };
 
@@ -52,6 +60,11 @@ typedef void(^SDWebImageCalculateSizeBlock)(NSUInteger fileCount, NSUInteger tot
  * SDImageCache maintains a memory cache and an optional disk cache. Disk cache write operations are performed
  * asynchronous so it doesn’t add unnecessary latency to the UI.
  */
+/*
+ SDImageCache继承自NSObject，没有继承NSCache
+ SDImageCache支持内存缓存，默认也可以进行磁盘存储，也可以选择不进行磁盘存储
+ 磁盘写操作是异步的，防止阻塞主线程
+ */
 @interface SDImageCache : NSObject
 
 #pragma mark - Properties
@@ -64,6 +77,7 @@ typedef void(^SDWebImageCalculateSizeBlock)(NSUInteger fileCount, NSUInteger tot
 /**
  * The maximum "total cost" of the in-memory image cache. The cost function is the number of pixels held in memory.
  */
+//内存缓存的最大cost，以像素为单位
 @property (assign, nonatomic) NSUInteger maxMemoryCost;
 
 /**
@@ -85,6 +99,7 @@ typedef void(^SDWebImageCalculateSizeBlock)(NSUInteger fileCount, NSUInteger tot
  *
  * @param ns The namespace to use for this cache store
  */
+// 这个namespace默认值是default，主要用于磁盘缓存时创建文件夹时作为其名称使用
 - (nonnull instancetype)initWithNamespace:(nonnull NSString *)ns;
 
 /**
@@ -105,6 +120,10 @@ typedef void(^SDWebImageCalculateSizeBlock)(NSUInteger fileCount, NSUInteger tot
  * Useful if you want to bundle pre-loaded images with your app
  *
  * @param path The path to use for this read-only cache path
+ */
+/*
+ 添加一个只读的缓存路径，以后在查找磁盘缓存时也会从这个路径中查找
+ 主要用于查找提前添加的图片
  */
 - (void)addReadOnlyCachePath:(nonnull NSString *)path;
 
@@ -145,6 +164,7 @@ typedef void(^SDWebImageCalculateSizeBlock)(NSUInteger fileCount, NSUInteger tot
  * @param toDisk          Store the image to disk cache if YES
  * @param completionBlock A block executed after the operation is finished
  */
+// 根据给定的key异步存储图片
 - (void)storeImage:(nullable UIImage *)image
          imageData:(nullable NSData *)imageData
             forKey:(nullable NSString *)key
@@ -158,6 +178,7 @@ typedef void(^SDWebImageCalculateSizeBlock)(NSUInteger fileCount, NSUInteger tot
  * @param imageData  The image data to store
  * @param key        The unique image cache key, usually it's image absolute URL
  */
+// 根据指定key同步存储NSData类型的图片数据到磁盘中，这是一个同步的方法，需要放在指定的ioQueue中执行
 - (void)storeImageDataToDisk:(nullable NSData *)imageData forKey:(nullable NSString *)key;
 
 #pragma mark - Query and Retrieve Ops
@@ -169,6 +190,7 @@ typedef void(^SDWebImageCalculateSizeBlock)(NSUInteger fileCount, NSUInteger tot
  *  @param completionBlock the block to be executed when the check is done.
  *  @note the completion block will be always executed on the main queue
  */
+// 异步地查找图片是否已经在磁盘缓存里了（只查找不加载）
 - (void)diskImageExistsWithKey:(nullable NSString *)key completion:(nullable SDWebImageCheckCacheCompletionBlock)completionBlock;
 
 /**
@@ -176,6 +198,7 @@ typedef void(^SDWebImageCalculateSizeBlock)(NSUInteger fileCount, NSUInteger tot
  *
  *  @param key             the key describing the url
  */
+// 同步地查找图片是否已经在磁盘缓存里了（只查找不加载）
 - (BOOL)diskImageDataExistsWithKey:(nullable NSString *)key;
 
 /**
@@ -197,6 +220,7 @@ typedef void(^SDWebImageCalculateSizeBlock)(NSUInteger fileCount, NSUInteger tot
  *
  * @return a NSOperation instance containing the cache op
  */
+// 异步地查询缓存，并返回一个NSOperation对象
 - (nullable NSOperation *)queryCacheOperationForKey:(nullable NSString *)key options:(SDImageCacheOptions)options done:(nullable SDCacheQueryCompletedBlock)doneBlock;
 
 /**
