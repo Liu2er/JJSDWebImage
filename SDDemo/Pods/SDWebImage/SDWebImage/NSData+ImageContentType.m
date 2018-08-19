@@ -27,8 +27,8 @@
     }
     
     // File signatures table: http://www.garykessler.net/library/file_sigs.html
-    uint8_t c;
-    [data getBytes:&c length:1];
+    uint8_t c; //unsigned char
+    [data getBytes:&c length:1]; //获取NSData所包含的指定长度的数据(将data的前1个字节里的数据保存到c里)
     switch (c) {
         case 0xFF:
             return SDImageFormatJPEG;
